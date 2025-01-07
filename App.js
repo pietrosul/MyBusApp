@@ -8,6 +8,21 @@ export default function App() {
   const [lines, setLines] = useState([]);
   const [error, setError] = useState(null);
 
+  const getVehicleTypeName = (type) => {
+    switch (type) {
+      case 'TRAM':
+        return 'Tramvaiul';
+      case 'CABLE_CAR':
+        return 'Troleibuzul';
+      case 'BUS':
+        return 'Autobuzul';
+      case 'SUBWAY':
+        return 'Metroul';
+      default:
+        return type;
+    }
+  };
+
   useEffect(() => {
     const fetchLines = async () => {
       try {
@@ -41,7 +56,7 @@ export default function App() {
           lines.map(line => (
             <View key={line.id} style={styles.lineItem}>
               <Text style={[styles.lineName, { color: line.color }]}>
-                {line.type} {line.name}
+                {getVehicleTypeName(line.type)} {line.name}
               </Text>
             </View>
           ))
