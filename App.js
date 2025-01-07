@@ -42,25 +42,66 @@ export default function App() {
   }, []);
 
   const updateStationsForRegion = (newRegion) => {
-    if (newRegion.latitudeDelta > 0.02) {
-      setStations([]); // Ascundem stațiile la zoom mare
-      return;
+    try {
+      // Verificăm mai întâi dacă zoom-ul este prea mare
+      const isZoomedOut = newRegion.latitudeDelta > 0.02;
+      
+      if (isZoomedOut) {
+        console.log('Se scot stațiile din vedere, deoarece utilizatorul a micșorat harta');
+        // În loc să setăm direct array-ul gol, vom face asta într-un setTimeout
+        // pentru a permite componentei să se actualizeze corect
+        setTimeout(() => {
+          setStations([]);
+        }, 0);
+        return;
+      }
+
+      const bounds = {
+        north: newRegion.latitude + newRegion.latitudeDelta,
+        south: newRegion.latitude - newRegion.latitudeDelta,
+        east: newRegion.longitude + newRegion.longitudeDelta,
+        west: newRegion.longitude - newRegion.longitudeDelta
+      };
+
+      const visibleStations = stbApi.getStationsInBounds(bounds);
+      console.log(`Nivel zoom: ${newRegion.latitudeDelta.toFixed(4)}`);
+      console.log(`S-au găsit ${visibleStations.length} stații în zona vizibilă`);
+      
+      // Folosim și aici setTimeout pentru a evita probleme de timing
+      setTimeout(() => {
+        setStations(visibleStations);
+      }, 0);
+    } catch (error) {
+      console.error('Eroare la actualizarea stațiilor:', error);
+      setTimeout(() => {
+        setStations([]);
+      }, 0);
     }
-
-    const bounds = {
-      north: newRegion.latitude + newRegion.latitudeDelta,
-      south: newRegion.latitude - newRegion.latitudeDelta,
-      east: newRegion.longitude + newRegion.longitudeDelta,
-      west: newRegion.longitude - newRegion.longitudeDelta
-    };
-
-    const visibleStations = stbApi.getStationsInBounds(bounds);
-    setStations(visibleStations);
   };
 
   const onRegionChangeComplete = (newRegion) => {
-    setRegion(newRegion);
-    updateStationsForRegion(newRegion);
+    try {
+      // Verificăm dacă noua regiune este validă
+      if (!newRegion || typeof newRegion.latitudeDelta !== 'number') {
+        console.error('Regiune invalidă:', newRegion);
+        return;
+      }
+
+      // Limităm zoom-ul maxim și minim
+      const limitedRegion = {
+        ...newRegion,
+        latitudeDelta: Math.min(Math.max(newRegion.latitudeDelta, 0.005), 0.1),
+        longitudeDelta: Math.min(Math.max(newRegion.longitudeDelta, 0.005), 0.1)
+      };
+
+      // Folosim și aici setTimeout pentru actualizarea regiunii
+      setTimeout(() => {
+        setRegion(limitedRegion);
+        updateStationsForRegion(limitedRegion);
+      }, 0);
+    } catch (error) {
+      console.error('Eroare la actualizarea regiunii:', error);
+    }
   };
 
   const getVehicleTypeName = (type) => {
@@ -95,32 +136,44 @@ export default function App() {
         style={styles.map}
         initialRegion={region}
         onRegionChangeComplete={onRegionChangeComplete}
+        minZoomLevel={12}
+        maxZoomLevel={18}
       >
-        {stations.map(station => (
-          <Marker
-            key={station.id}
-            coordinate={{
-              latitude: parseFloat(station.lat),
-              longitude: parseFloat(station.lng)
-            }}
-            title={station.name}
-          >
-            <View style={styles.stationMarker}>
-              <View style={[
-                styles.stationDot,
-                { backgroundColor: stbApi.vehicleColors[station.type] }
-              ]} />
-            </View>
-            <Callout tooltip>
-              <View style={styles.callout}>
-                <Text style={styles.calloutTitle}>{station.name}</Text>
-                <Text style={styles.calloutSubtitle}>
-                  Linii: {station.lines.join(', ')}
-                </Text>
+        {stations?.length > 0 && stations.map(station => {
+          // Verificăm dacă stația are coordonate valide
+          const lat = parseFloat(station.lat);
+          const lng = parseFloat(station.lng);
+          
+          if (!lat || !lng) return null;
+          
+          return (
+            <Marker
+              key={station.id}
+              coordinate={{
+                latitude: lat,
+                longitude: lng
+              }}
+              title={station.name}
+            >
+              <View style={styles.stationMarker}>
+                <View style={[
+                  styles.stationDot,
+                  { backgroundColor: stbApi.vehicleColors[station.type] || '#999999' }
+                ]} />
               </View>
-            </Callout>
-          </Marker>
-        ))}
+              <Callout tooltip>
+                <View style={styles.callout}>
+                  <Text style={styles.calloutTitle}>
+                    {station.name || 'Stație necunoscută'}
+                  </Text>
+                  <Text style={styles.calloutSubtitle}>
+                    Linii: {station.lines?.length > 0 ? station.lines.join(', ') : 'Necunoscute'}
+                  </Text>
+                </View>
+              </Callout>
+            </Marker>
+          );
+        })}
       </MapView>
       <ScrollView style={styles.linesContainer}>
         {loading ? (
