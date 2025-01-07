@@ -1,23 +1,26 @@
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, View, Text, ScrollView } from 'react-native';
-import MapView from 'react-native-maps';
+import MapView, { Marker } from 'react-native-maps';
 import { useState, useEffect } from 'react';
 import { stbApi } from './services/stbApi';
 
 export default function App() {
-  const [networkInfo, setNetworkInfo] = useState({});
+  const [lines, setLines] = useState([]);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    const testApi = async () => {
+    const fetchLines = async () => {
       try {
-        const results = await stbApi.testEndpoints();
-        setNetworkInfo(results);
+        const linesData = await stbApi.getLines();
+        setLines(linesData);
+        console.log('Linii găsite:', linesData.length);
       } catch (error) {
-        setNetworkInfo({ error: error.message });
+        setError(error.message);
+        console.error('Eroare la preluarea liniilor:', error);
       }
     };
 
-    testApi();
+    fetchLines();
   }, []);
 
   return (
@@ -31,25 +34,18 @@ export default function App() {
           longitudeDelta: 0.0421,
         }}
       />
-      <ScrollView style={styles.debugContainer}>
-        {Object.entries(networkInfo).map(([endpoint, info]) => (
-          <View key={endpoint} style={styles.endpointContainer}>
-            <Text style={styles.endpointText}>Endpoint: {endpoint}</Text>
-            <Text style={styles.statusText}>
-              Status: {info.status || 'Error'}
-            </Text>
-            {info.data && (
-              <Text style={styles.dataText}>
-                Data: {JSON.stringify(info.data).substring(0, 100)}...
+      <ScrollView style={styles.linesContainer}>
+        {error ? (
+          <Text style={styles.errorText}>Eroare: {error}</Text>
+        ) : (
+          lines.map(line => (
+            <View key={line.id} style={styles.lineItem}>
+              <Text style={[styles.lineName, { color: line.color }]}>
+                {line.type} {line.name}
               </Text>
-            )}
-            {info.error && (
-              <Text style={styles.errorText}>
-                Error: {info.message}
-              </Text>
-            )}
-          </View>
-        ))}
+            </View>
+          ))
+        )}
       </ScrollView>
       <StatusBar style="auto" />
     </View>
@@ -62,35 +58,25 @@ const styles = StyleSheet.create({
   },
   map: {
     width: '100%',
-    height: '50%',
+    height: '60%',
   },
-  debugContainer: {
+  linesContainer: {
     flex: 1,
     backgroundColor: '#f0f0f0',
     padding: 10,
   },
-  endpointContainer: {
+  lineItem: {
     padding: 10,
-    marginBottom: 10,
+    marginBottom: 5,
     backgroundColor: 'white',
     borderRadius: 5,
   },
-  endpointText: {
-    fontSize: 14,
+  lineName: {
+    fontSize: 16,
     fontWeight: 'bold',
   },
-  statusText: {
-    fontSize: 12,
-    color: '#666',
-  },
-  dataText: {
-    fontSize: 12,
-    color: '#008000',
-    marginTop: 5,
-  },
   errorText: {
-    fontSize: 12,
-    color: '#ff0000',
-    marginTop: 5,
+    color: 'red',
+    padding: 10,
   },
 });

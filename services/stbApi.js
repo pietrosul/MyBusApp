@@ -3,70 +3,56 @@ import axios from 'axios';
 class STBApi {
   constructor() {
     this.axios = axios.create({
-      baseURL: 'https://infotransport.ro',
+      baseURL: 'https://info.stbsa.ro',
       timeout: 10000,
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
+        'User-Agent': 'InfoTB/1.0',
       }
     });
   }
 
-  async testEndpoints() {
-    const endpoints = [
-      '/line-stations/1',          // Test pentru o linie specifică (1)
-      '/station-lines/1234',       // Test pentru o stație specifică (1234)
-      '/station-timetable/1234/1', // Test pentru programul unei linii la o stație
-    ];
-
-    const results = {};
-
-    for (const endpoint of endpoints) {
-      try {
-        const response = await this.axios.get(endpoint);
-        results[endpoint] = {
-          status: response.status,
-          data: response.data
-        };
-      } catch (error) {
-        results[endpoint] = {
-          error: true,
-          status: error.response?.status,
-          message: error.message
-        };
-      }
-    }
-
-    return results;
-  }
-
-  // Metode specifice pentru fiecare tip de request
-  async getLineStations(lineId) {
+  // Obține toate liniile STB
+  async getLines() {
     try {
-      const response = await this.axios.get(`/line-stations/${lineId}`);
-      return response.data;
+      const response = await this.axios.get('/rp/api/lines');
+      return response.data.lines;
     } catch (error) {
-      console.error(`Error getting line stations for line ${lineId}:`, error);
+      console.error('Error fetching lines:', error);
       throw error;
     }
   }
 
-  async getStationLines(stationId) {
+  // Obține detalii despre o linie specifică
+  async getLineDetails(lineId) {
     try {
-      const response = await this.axios.get(`/station-lines/${stationId}`);
+      const response = await this.axios.get(`/rp/api/lines/${lineId}`);
       return response.data;
     } catch (error) {
-      console.error(`Error getting station lines for station ${stationId}:`, error);
+      console.error(`Error fetching line ${lineId} details:`, error);
       throw error;
     }
   }
 
-  async getStationTimetable(stationId, lineId) {
+  // Obține vehiculele pentru o linie
+  async getLineVehicles(lineId) {
     try {
-      const response = await this.axios.get(`/station-timetable/${stationId}/${lineId}`);
+      const response = await this.axios.get(`/rp/api/vehicles/line/${lineId}`);
       return response.data;
     } catch (error) {
-      console.error(`Error getting timetable for station ${stationId} and line ${lineId}:`, error);
+      console.error(`Error fetching vehicles for line ${lineId}:`, error);
+      throw error;
+    }
+  }
+
+  // Obține timpii de sosire pentru o stație
+  async getStationTimes(stationId) {
+    try {
+      const response = await this.axios.get(`/rp/api/times/station/${stationId}`);
+      return response.data;
+    } catch (error) {
+      console.error(`Error fetching times for station ${stationId}:`, error);
       throw error;
     }
   }
