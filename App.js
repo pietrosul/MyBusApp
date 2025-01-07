@@ -1,7 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, View, Text, ScrollView, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, ActivityIndicator, TouchableOpacity, TouchableWithoutFeedback } from 'react-native';
 import MapView, { Marker, Callout } from 'react-native-maps';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { stbApi } from './services/stbApi';
 
 export default function App() {
@@ -15,6 +15,11 @@ export default function App() {
     latitudeDelta: 0.0422,
     longitudeDelta: 0.0421,
   });
+  const [selectedStation, setSelectedStation] = useState(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const timeoutRef = useRef(null);
+  const [arrivals, setArrivals] = useState([]);
+  const [loadingArrivals, setLoadingArrivals] = useState(false);
 
   useEffect(() => {
     const initializeApp = async () => {
@@ -41,20 +46,25 @@ export default function App() {
     initializeApp();
   }, []);
 
+  const ZOOM_THRESHOLD = {
+    MIN: 0.03,
+    MAX: 0.2
+  };
+
   const updateStationsForRegion = (newRegion) => {
     try {
-      // Verificăm mai întâi dacă zoom-ul este prea mare
-      const isZoomedOut = newRegion.latitudeDelta > 0.02;
-      
-      if (isZoomedOut) {
-        console.log('Se scot stațiile din vedere, deoarece utilizatorul a micșorat harta');
-        // În loc să setăm direct array-ul gol, vom face asta într-un setTimeout
-        // pentru a permite componentei să se actualizeze corect
-        setTimeout(() => {
-          setStations([]);
-        }, 0);
+      // Prevenim actualizări multiple simultane
+      if (isUpdating) {
         return;
       }
+
+      // Nu încărcăm stații dacă zoom-ul e prea mare
+      if (newRegion.latitudeDelta >= ZOOM_THRESHOLD.MIN) {
+        setStations([]);
+        return;
+      }
+
+      setIsUpdating(true);
 
       const bounds = {
         north: newRegion.latitude + newRegion.latitudeDelta,
@@ -64,45 +74,63 @@ export default function App() {
       };
 
       const visibleStations = stbApi.getStationsInBounds(bounds);
-      console.log(`Nivel zoom: ${newRegion.latitudeDelta.toFixed(4)}`);
-      console.log(`S-au găsit ${visibleStations.length} stații în zona vizibilă`);
+      const maxStations = 150;
+      const limitedStations = visibleStations.slice(0, maxStations);
       
-      // Folosim și aici setTimeout pentru a evita probleme de timing
-      setTimeout(() => {
-        setStations(visibleStations);
-      }, 0);
+      setStations(limitedStations);
+      
+      // Resetăm flag-ul după un scurt delay
+      timeoutRef.current = setTimeout(() => {
+        setIsUpdating(false);
+      }, 300);
+
     } catch (error) {
       console.error('Eroare la actualizarea stațiilor:', error);
-      setTimeout(() => {
-        setStations([]);
-      }, 0);
+      setStations([]);
+      setIsUpdating(false);
     }
   };
 
   const onRegionChangeComplete = (newRegion) => {
     try {
-      // Verificăm dacă noua regiune este validă
       if (!newRegion || typeof newRegion.latitudeDelta !== 'number') {
-        console.error('Regiune invalidă:', newRegion);
         return;
       }
 
-      // Limităm zoom-ul maxim și minim
-      const limitedRegion = {
-        ...newRegion,
-        latitudeDelta: Math.min(Math.max(newRegion.latitudeDelta, 0.005), 0.1),
-        longitudeDelta: Math.min(Math.max(newRegion.longitudeDelta, 0.005), 0.1)
-      };
+      // Curățăm timeout-ul anterior dacă există
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
 
-      // Folosim și aici setTimeout pentru actualizarea regiunii
-      setTimeout(() => {
-        setRegion(limitedRegion);
-        updateStationsForRegion(limitedRegion);
-      }, 0);
+      // Verificăm dacă dăm zoom out și avem stații vizibile
+      if (stations.length > 0 && newRegion.latitudeDelta > region.latitudeDelta) {
+        setStations([]);
+        setRegion(newRegion);
+        return;
+      }
+
+      setRegion(newRegion);
+      
+      // Adăugăm un mic delay înainte de a încărca stațiile
+      timeoutRef.current = setTimeout(() => {
+        if (newRegion.latitudeDelta < ZOOM_THRESHOLD.MIN) {
+          updateStationsForRegion(newRegion);
+        }
+      }, 100);
+
     } catch (error) {
       console.error('Eroare la actualizarea regiunii:', error);
     }
   };
+
+  // Curățăm timeout-ul când componenta este demontată
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   const getVehicleTypeName = (type) => {
     switch (type) {
@@ -114,12 +142,36 @@ export default function App() {
         return 'Autobuzul';
       case 'NIGHT_BUS':
         return 'Autobuzul de noapte';
+      case 'REGIONAL_BUS':
+        return 'Autobuzul regional';
       case 'SUBWAY':
         return 'Metroul';
       default:
         return type;
     }
   };
+
+  const deselectStation = () => {
+    setSelectedStation(null);
+  };
+
+  useEffect(() => {
+    const fetchArrivals = async () => {
+      if (selectedStation) {
+        setLoadingArrivals(true);
+        try {
+          const arrivalTimes = await stbApi.getRealTimeArrivals(selectedStation.id, selectedStation.lines);
+          setArrivals(arrivalTimes);
+        } catch (error) {
+          console.error('Eroare la obținerea timpilor de sosire:', error);
+        } finally {
+          setLoadingArrivals(false);
+        }
+      }
+    };
+
+    fetchArrivals();
+  }, [selectedStation]);
 
   if (loading) {
     return (
@@ -136,11 +188,15 @@ export default function App() {
         style={styles.map}
         initialRegion={region}
         onRegionChangeComplete={onRegionChangeComplete}
-        minZoomLevel={12}
+        minZoomLevel={8}
         maxZoomLevel={18}
+        moveOnMarkerPress={false}
+        rotateEnabled={false}
+        pitchEnabled={false}
+        zoomEnabled={true}
+        zoomTapEnabled={true}
       >
         {stations?.length > 0 && stations.map(station => {
-          // Verificăm dacă stația are coordonate valide
           const lat = parseFloat(station.lat);
           const lng = parseFloat(station.lng);
           
@@ -153,7 +209,8 @@ export default function App() {
                 latitude: lat,
                 longitude: lng
               }}
-              title={station.name}
+              onPress={() => setSelectedStation(station)}
+              ref={(ref) => { station.markerRef = ref }}
             >
               <View style={styles.stationMarker}>
                 <View style={[
@@ -162,19 +219,61 @@ export default function App() {
                 ]} />
               </View>
               <Callout tooltip>
-                <View style={styles.callout}>
-                  <Text style={styles.calloutTitle}>
-                    {station.name || 'Stație necunoscută'}
-                  </Text>
-                  <Text style={styles.calloutSubtitle}>
-                    Linii: {station.lines?.length > 0 ? station.lines.join(', ') : 'Necunoscute'}
-                  </Text>
+                <View style={styles.calloutContainer}>
+                  <View style={styles.callout}>
+                    <View style={styles.calloutHeader}>
+                      <View style={styles.stationInfo}>
+                        <Text style={styles.stationName}>{station.name || 'Stație necunoscută'}</Text>
+                        <Text style={styles.stationAddress}>Șos. București-Ploiești, București</Text>
+                      </View>
+                      <TouchableOpacity 
+                        onPress={() => {
+                          setSelectedStation(null);
+                          station.markerRef?.hideCallout();
+                        }}
+                        style={styles.closeButtonContainer}
+                      >
+                        <Text style={styles.calloutCloseButton}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {station.lines?.length > 0 ? (
+                      <ScrollView style={styles.arrivalsList}>
+                        {loadingArrivals ? (
+                          <ActivityIndicator size="small" color="#666" />
+                        ) : (
+                          arrivals.map((lineInfo, index) => (
+                            <View key={index} style={styles.arrivalItem}>
+                              <View style={[styles.lineSquare, { backgroundColor: stbApi.vehicleColors[lineInfo.type] }]}>
+                                <Text style={styles.lineNumber}>{lineInfo.line}</Text>
+                              </View>
+                              <View style={styles.lineDetails}>
+                                <Text style={styles.destinationText}>→ {lineInfo.destination}</Text>
+                                <View style={styles.arrivalTimes}>
+                                  {lineInfo.arrivals.map((time, idx) => (
+                                    <View key={idx} style={styles.timeChip}>
+                                      <Text style={styles.timeText}>
+                                        {time} min
+                                      </Text>
+                                    </View>
+                                  ))}
+                                </View>
+                              </View>
+                            </View>
+                          ))
+                        )}
+                      </ScrollView>
+                    ) : (
+                      <Text style={styles.noLinesText}>Nu există informații despre linii</Text>
+                    )}
+                  </View>
                 </View>
               </Callout>
             </Marker>
           );
         })}
       </MapView>
+      
       <ScrollView style={styles.linesContainer}>
         {loading ? (
           <Text style={styles.loadingText}>Se încarcă...</Text>
@@ -245,29 +344,39 @@ const styles = StyleSheet.create({
   },
   callout: {
     backgroundColor: 'white',
-    borderRadius: 8,
+    borderRadius: 16,
     padding: 20,
-    minWidth: 200,
-    maxWidth: 300,
+    width: 300,
+    maxHeight: 400,
     shadowColor: "#000",
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 4,
     },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
+    elevation: 8,
+  },
+  calloutHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 16,
   },
   calloutTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
-    marginBottom: 10,
     color: '#333',
+    flex: 1,
+  },
+  calloutCloseButton: {
+    fontSize: 20,
+    color: '#666',
+    fontWeight: '500',
   },
   calloutSubtitle: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#666',
-    marginBottom: 5,
   },
   loadingText: {
     padding: 10,
@@ -279,5 +388,83 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#fff',
+  },
+  arrivalsList: {
+    maxHeight: 300,
+  },
+  arrivalItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  lineHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  arrivalTimes: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  timeChip: {
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  timeText: {
+    fontSize: 13,
+    color: '#333',
+    fontWeight: '500',
+  },
+  stationInfo: {
+    flex: 1,
+  },
+  stationName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 4,
+  },
+  stationAddress: {
+    fontSize: 14,
+    color: '#666',
+  },
+  lineSquare: {
+    width: 45,
+    height: 45,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  lineNumber: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  lineDetails: {
+    flex: 1,
+  },
+  destinationText: {
+    fontSize: 15,
+    color: '#333',
+    marginBottom: 6,
+  },
+  noLinesText: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  closeButtonContainer: {
+    padding: 4,
+  },
+  calloutContainer: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [
+      { translateX: -150 }, // Jumătate din width
+      { translateY: -200 }  // Ajustează pentru centrare verticală
+    ],
   },
 });
