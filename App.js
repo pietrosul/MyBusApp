@@ -36,8 +36,18 @@ export default function App() {
           <View key={endpoint} style={styles.endpointContainer}>
             <Text style={styles.endpointText}>Endpoint: {endpoint}</Text>
             <Text style={styles.statusText}>
-              Status: {info.status || info.error ? 'Error' : 'Success'}
+              Status: {info.status || 'Error'}
             </Text>
+            {info.data && (
+              <Text style={styles.dataText}>
+                Data: {JSON.stringify(info.data).substring(0, 100)}...
+              </Text>
+            )}
+            {info.error && (
+              <Text style={styles.errorText}>
+                Error: {info.message}
+              </Text>
+            )}
           </View>
         ))}
       </ScrollView>
@@ -72,5 +82,15 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 12,
     color: '#666',
+  },
+  dataText: {
+    fontSize: 12,
+    color: '#008000',
+    marginTop: 5,
+  },
+  errorText: {
+    fontSize: 12,
+    color: '#ff0000',
+    marginTop: 5,
   },
 });

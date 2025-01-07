@@ -3,7 +3,7 @@ import axios from 'axios';
 class STBApi {
   constructor() {
     this.axios = axios.create({
-      baseURL: 'https://info.tusm.ro',
+      baseURL: 'https://infotransport.ro',
       timeout: 10000,
       headers: {
         'Accept': 'application/json',
@@ -14,13 +14,9 @@ class STBApi {
 
   async testEndpoints() {
     const endpoints = [
-      '/api/stations',
-      '/api/v1/stations',
-      '/openapp/api/stations',
-      '/openapp/api/station/222',
-      '/api/station/222',
-      '/api/lines',
-      '/api/v1/lines'
+      '/line-stations/1',          // Test pentru o linie specifică (1)
+      '/station-lines/1234',       // Test pentru o stație specifică (1234)
+      '/station-timetable/1234/1', // Test pentru programul unei linii la o stație
     ];
 
     const results = {};
@@ -42,6 +38,37 @@ class STBApi {
     }
 
     return results;
+  }
+
+  // Metode specifice pentru fiecare tip de request
+  async getLineStations(lineId) {
+    try {
+      const response = await this.axios.get(`/line-stations/${lineId}`);
+      return response.data;
+    } catch (error) {
+      console.error(`Error getting line stations for line ${lineId}:`, error);
+      throw error;
+    }
+  }
+
+  async getStationLines(stationId) {
+    try {
+      const response = await this.axios.get(`/station-lines/${stationId}`);
+      return response.data;
+    } catch (error) {
+      console.error(`Error getting station lines for station ${stationId}:`, error);
+      throw error;
+    }
+  }
+
+  async getStationTimetable(stationId, lineId) {
+    try {
+      const response = await this.axios.get(`/station-timetable/${stationId}/${lineId}`);
+      return response.data;
+    } catch (error) {
+      console.error(`Error getting timetable for station ${stationId} and line ${lineId}:`, error);
+      throw error;
+    }
   }
 }
 
